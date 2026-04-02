@@ -3,7 +3,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.hostname}:8000/ws`
+  // Use window.location.host so the Vite dev-server proxy and same-origin
+  // production deployments (including Cloudflare Pages with Functions) both work.
+  return `${protocol}//${window.location.host}/ws`
 }
 
 export function useSimulation() {
