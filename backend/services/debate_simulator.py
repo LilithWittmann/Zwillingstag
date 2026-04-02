@@ -1,6 +1,6 @@
 """
 Orchestrates parliament debate simulation:
-- loads CDU member data
+- loads CDU/CSU member data from the Bundestag XML API (via MdbService)
 - assigns seats in semi-circular layout
 - manages current speech and cached reactions
 - triggers LLM generation when speech changes
@@ -8,7 +8,6 @@ Orchestrates parliament debate simulation:
 
 import json
 import logging
-import math
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -16,6 +15,7 @@ from typing import Dict, List, Optional
 from models import Member, Reaction, SimulationState, Speech
 from services.bundestag_api import BundestagAPI
 from services.llm_service import LLMService
+from services.mdb_service import MdbService
 
 logger = logging.getLogger(__name__)
 
@@ -23,27 +23,24 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 class DebateSimulator:
-    def __init__(self, bundestag_api: BundestagAPI, llm_service: LLMService):
+    def __init__(self, bundestag_api: BundestagAPI, llm_service: LLMService, mdb_service: MdbService):
         self.bundestag_api = bundestag_api
         self.llm_service = llm_service
+        self.mdb_service = mdb_service
         self.members: List[Member] = []
         self.available_speeches: List[Speech] = []
         self.current_speech: Optional[Speech] = None
         self.reactions: List[Reaction] = []
         self._reaction_cache: Dict[str, List[Reaction]] = {}
-        self._load_members()
 
     # ------------------------------------------------------------------
     # Member data
     # ------------------------------------------------------------------
 
-    def _load_members(self):
-        path = DATA_DIR / "cdu_members.json"
-        with open(path) as f:
-            raw = json.load(f)
-        members = [Member(**m) for m in raw]
-        members = self._assign_seats(members)
-        self.members = members
+    async def load_members(self):
+        """Fetch CDU/CSU member data from the Bundestag XML API (cached)."""
+        members = await self.mdb_service.fetch_members()
+        self.members = self._assign_seats(members)
         logger.info(f"Loaded {len(self.members)} CDU/CSU members")
 
     def _assign_seats(self, members: List[Member]) -> List[Member]:

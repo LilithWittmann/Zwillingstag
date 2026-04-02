@@ -389,15 +389,15 @@ html, body, #root {
    Member Seat
    ============================================================ */
 .member-seat {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   position: relative;
   cursor: pointer;
 }
 
 .seat-avatar {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: linear-gradient(135deg, #1a2445, #0f1730);
   border: 2px solid rgba(255, 255, 255, 0.1);
@@ -406,17 +406,31 @@ html, body, #root {
   justify-content: center;
   position: relative;
   transition: border-color 0.2s, transform 0.2s;
-  overflow: visible;
+  overflow: hidden;
+}
+
+/* Photo avatar — no background needed */
+.seat-avatar.has-photo {
+  background: #0a0e1a;
+}
+
+.seat-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 50%;
+  display: block;
 }
 
 .member-seat:hover .seat-avatar {
   border-color: var(--gold);
-  transform: scale(1.15);
+  transform: scale(1.25);
   z-index: 5;
 }
 
 .seat-initials {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 0.3px;
@@ -543,13 +557,26 @@ html, body, #root {
   background: #1a2445;
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-md);
-  padding: 8px 12px;
+  padding: 10px 12px;
   min-width: 160px;
-  max-width: 220px;
+  max-width: 230px;
   z-index: 50;
   box-shadow: 0 8px 24px rgba(0,0,0,0.6);
   pointer-events: none;
   animation: bubbleIn 0.15s ease-out;
+}
+
+/* Profile photo inside tooltip */
+.tooltip-photo {
+  width: 56px;
+  height: 84px;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 4px;
+  float: right;
+  margin-left: 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border-accent);
 }
 
 .tooltip-name {

@@ -30,10 +30,18 @@ class LLMService:
         return self._client
 
     def _build_prompt(self, speech: Speech, members: List[Member]) -> str:
-        members_summary = "\n".join(
-            f"- ID:{m.id} | {m.name} ({m.party}, {m.state}) | Stil: {m.political_style[:120]}"
-            for m in members
-        )
+        def member_line(m: Member) -> str:
+            bio_snippet = ""
+            if m.bio:
+                # Use first sentence of bio as personal context
+                first = m.bio.split(".")[0].strip()
+                if len(first) > 20:
+                    bio_snippet = f" | Bio: {first[:160]}"
+            role_snippet = f" | Funktion: {m.role}" if m.role else ""
+            style_snippet = f" | Stil: {m.political_style[:100]}" if m.political_style else ""
+            return f"- ID:{m.id} | {m.name} ({m.party}, {m.state}){role_snippet}{style_snippet}{bio_snippet}"
+
+        members_summary = "\n".join(member_line(m) for m in members)
         return f"""Du simulierst CDU/CSU-Abgeordnete des deutschen Bundestags, die auf eine Rede reagieren.
 
 REDE:

@@ -18,6 +18,7 @@ from models import Speech
 from services.bundestag_api import BundestagAPI
 from services.debate_simulator import DebateSimulator
 from services.llm_service import LLMService
+from services.mdb_service import MdbService
 
 
 # ------------------------------------------------------------------
@@ -38,6 +39,8 @@ async def auto_update_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Load CDU/CSU members from Bundestag XML API (cached to disk)
+    await simulator.load_members()
     asyncio.create_task(auto_update_loop())
     yield
 
@@ -63,7 +66,8 @@ llm_service = LLMService(
     api_key=os.getenv("OPENAI_API_KEY"),
     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
 )
-simulator = DebateSimulator(bundestag_api, llm_service)
+mdb_service = MdbService()
+simulator = DebateSimulator(bundestag_api, llm_service, mdb_service)
 
 # Active WebSocket connections
 connections: List[WebSocket] = []

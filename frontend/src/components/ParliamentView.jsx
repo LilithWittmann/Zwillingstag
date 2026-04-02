@@ -117,10 +117,10 @@ export default function ParliamentView({ members, reactions }) {
         {seats.map(({ member, x, y }) => (
           <foreignObject
             key={member.id}
-            x={x - 22}
-            y={y - 22}
-            width={44}
-            height={44}
+            x={x - 19}
+            y={y - 19}
+            width={38}
+            height={38}
             overflow="visible"
           >
             <MemberSeat

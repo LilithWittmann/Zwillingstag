@@ -14,6 +14,7 @@ const REACTION_ICONS = {
 
 export default function MemberSeat({ member, reaction, style }) {
   const [hovered, setHovered] = useState(false)
+  const [photoError, setPhotoError] = useState(false)
   const reactionType = reaction?.reaction_type || 'silent'
   const intensity = reaction?.intensity || 1
   const text = reaction?.text
@@ -21,12 +22,14 @@ export default function MemberSeat({ member, reaction, style }) {
   const initials = member.name
     .split(' ')
     .map((w) => w[0])
+    .filter(Boolean)
     .join('')
     .slice(0, 2)
     .toUpperCase()
 
   const partyColor = PARTY_COLORS[member.party] || '#1a1a2e'
   const isActive = reactionType !== 'silent'
+  const showPhoto = member.photo_url && !photoError
 
   return (
     <div
@@ -41,8 +44,18 @@ export default function MemberSeat({ member, reaction, style }) {
       aria-label={`${member.name}: ${reactionType}${text ? ` – ${text}` : ''}`}
     >
       {/* Avatar */}
-      <div className="seat-avatar">
-        <span className="seat-initials">{initials}</span>
+      <div className={`seat-avatar ${showPhoto ? 'has-photo' : ''}`}>
+        {showPhoto ? (
+          <img
+            src={member.photo_url}
+            alt={member.name}
+            className="seat-photo"
+            onError={() => setPhotoError(true)}
+            loading="lazy"
+          />
+        ) : (
+          <span className="seat-initials">{initials}</span>
+        )}
         {reactionType === 'clap' && (
           <div
             className="clap-animation"
@@ -66,6 +79,14 @@ export default function MemberSeat({ member, reaction, style }) {
       {/* Tooltip */}
       {hovered && (
         <div className="seat-tooltip">
+          {showPhoto && (
+            <img
+              src={member.photo_url}
+              alt={member.name}
+              className="tooltip-photo"
+              loading="lazy"
+            />
+          )}
           <div className="tooltip-name">{member.name}</div>
           <div className="tooltip-meta">
             {member.party} · {member.state}

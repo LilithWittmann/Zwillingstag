@@ -20,6 +20,10 @@ class Member(BaseModel):
     political_style: str = ""
     seat_row: int = 0
     seat_col: int = 0
+    # Bundestag XML API enriched fields
+    mdb_id: Optional[str] = None
+    photo_url: Optional[str] = None
+    bio: Optional[str] = None
 
 
 class Speech(BaseModel):
