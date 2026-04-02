@@ -5,29 +5,29 @@ Fetches all active CDU/CSU Bundestag members from the official XML feed at
   https://www.bundestag.de/xml/v2/mdb/index.xml
 including their profile pictures and biographical data.
 
-Results are cached to data/mdb_cache.json for 24 hours so that subsequent
-server restarts are instant.  If the remote API is unreachable, the service
-falls back to the static data/cdu_members.json file.
+Results are stored in the KV store (no expiry) so that subsequent server
+restarts are instant.  Falls back to in-memory cache when no KV store is
+configured and to the static data/cdu_members.json file when the remote API
+is unreachable.
 """
 
 import asyncio
 import json
 import logging
 import re
-import time
 from pathlib import Path
 from typing import List, Optional
 
 import httpx
 
 from models import Member
+from services.kv_store import KVStore
 
 logger = logging.getLogger(__name__)
 
 INDEX_URL = "https://www.bundestag.de/xml/v2/mdb/index.xml"
 DATA_DIR = Path(__file__).parent.parent / "data"
-CACHE_FILE = DATA_DIR / "mdb_cache.json"
-CACHE_TTL_SECONDS = 24 * 3600  # 24 hours
+KV_KEY_MEMBERS = "mdb:members"
 # Concurrent HTTP requests when enriching individual member XMLs
 ENRICH_CONCURRENCY = 15
 
@@ -35,27 +35,40 @@ ENRICH_CONCURRENCY = 15
 class MdbService:
     """Loads CDU/CSU member data from the Bundestag XML API."""
 
-    def __init__(self):
+    def __init__(self, kv_store: Optional[KVStore] = None) -> None:
+        self.kv_store = kv_store
         self._client = httpx.AsyncClient(
             timeout=30.0,
             headers={"User-Agent": "Zwillingstag/1.0 (research project)"},
         )
+        # In-memory cache used when no KV store is available
+        self._mem_cache: Optional[List[Member]] = None
 
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
 
     async def fetch_members(self) -> List[Member]:
-        """Return all active CDU/CSU members, using disk cache when fresh."""
-        if self._is_cache_fresh():
-            logger.info("Using cached MdB data")
-            return self._load_from_cache()
+        """Return all active CDU/CSU members, using KV store when available."""
+        # 1. Try KV store (persistent across Workers restarts)
+        if self.kv_store is not None:
+            cached = await self.kv_store.get_json(KV_KEY_MEMBERS)
+            if cached is not None:
+                try:
+                    logger.info("Using KV-cached MdB data")
+                    return [Member(**m) for m in cached]
+                except Exception as e:
+                    logger.warning(f"KV member cache parse error: {e}")
+        # 2. Try in-memory cache (local dev without KV)
+        elif self._mem_cache is not None:
+            logger.info("Using in-memory MdB data")
+            return self._mem_cache
 
         logger.info("Fetching CDU/CSU member data from Bundestag XML API…")
         try:
             basic = await self._fetch_index()
             enriched = await self._enrich_all(basic)
-            self._save_cache(enriched)
+            await self._save_cache(enriched)
             logger.info(f"Loaded and cached {len(enriched)} CDU/CSU members")
             return enriched
         except Exception as e:
@@ -67,21 +80,12 @@ class MdbService:
     # Cache helpers
     # ------------------------------------------------------------------
 
-    def _is_cache_fresh(self) -> bool:
-        if not CACHE_FILE.exists():
-            return False
-        age = time.time() - CACHE_FILE.stat().st_mtime
-        return age < CACHE_TTL_SECONDS
-
-    def _load_from_cache(self) -> List[Member]:
-        with open(CACHE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        return [Member(**m) for m in data]
-
-    def _save_cache(self, members: List[Member]):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump([m.model_dump() for m in members], f, ensure_ascii=False, indent=2)
+    async def _save_cache(self, members: List[Member]) -> None:
+        serialised = [m.model_dump() for m in members]
+        if self.kv_store is not None:
+            await self.kv_store.put_json(KV_KEY_MEMBERS, serialised)
+        else:
+            self._mem_cache = members
 
     def _load_static_fallback(self) -> List[Member]:
         path = DATA_DIR / "cdu_members.json"
