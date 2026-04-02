@@ -75,7 +75,7 @@ npm run dev                   # starts on http://localhost:5173
 
 | Variable | Description | Default |
 |---|---|---|
-| `BUNDESTAG_API_KEY` | [DIP API key](https://dip.bundestag.de/api/v1/) | *(mock fallback)* |
+| `BUNDESTAG_API_KEY` | [DIP API key](https://dip.bundestag.de/%C3%BCber-dip/hilfe/api) | *(mock fallback)* |
 | `OPENAI_API_KEY` | OpenAI key for reaction generation | *(mock fallback)* |
 | `OPENAI_MODEL` | Model to use | `gpt-4o-mini` |
 | `POLL_INTERVAL_SECONDS` | Live-update polling interval | `120` |
