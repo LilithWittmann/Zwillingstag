@@ -65,6 +65,7 @@ bundestag_api = BundestagAPI(api_key=os.getenv("BUNDESTAG_API_KEY"))
 llm_service = LLMService(
     api_key=os.getenv("OPENAI_API_KEY"),
     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    base_url=os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
 )
 mdb_service = MdbService()
 simulator = DebateSimulator(bundestag_api, llm_service, mdb_service)

@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini", base_url: Optional[str] = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.base_url = base_url or os.getenv("OPENAI_API_BASE_URL")
         self.model = model
         self._client = None
 
@@ -24,7 +25,10 @@ class LLMService:
         if self._client is None and self.api_key:
             try:
                 from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(api_key=self.api_key)
+                self._client = AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                )
             except ImportError:
                 logger.warning("openai package not installed – falling back to mock")
         return self._client
