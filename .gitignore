@@ -16,3 +16,4 @@ dist/
 
 # Generated data cache (fetched from Bundestag API at runtime)
 backend/data/mdb_cache.json
+backend/data/protocol_cache/
