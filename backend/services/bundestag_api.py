@@ -8,8 +8,8 @@ Workflow:
      on dserver.bundestag.de.
   3. Download and parse those XML files to extract individual speeches with full text,
      speaker name, party (Fraktion), and agenda topic (Tagesordnungspunkt).
-  4. Parsed protocols are cached to data/protocol_cache/ (6 h TTL) so repeated
-     requests are served from disk.
+  4. Parsed protocols are stored in the KV store (no expiry) so repeated requests are
+     served from cache. Falls back to in-memory dict when no KV store is configured.
 
 Falls back to bundled mock speeches when no BUNDESTAG_API_KEY is configured.
 """
@@ -18,7 +18,6 @@ import hashlib
 import json
 import logging
 import re
-import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -27,15 +26,12 @@ from typing import Dict, List, Optional
 import httpx
 
 from models import Speech
+from services.kv_store import KVStore
 
 logger = logging.getLogger(__name__)
 
 DIP_API_BASE = "https://search.dip.bundestag.de/api/v1"
 DSERVER_BASE = "https://dserver.bundestag.de"
-
-DATA_DIR = Path(__file__).parent.parent / "data"
-CACHE_DIR = DATA_DIR / "protocol_cache"
-CACHE_TTL_SECONDS = 6 * 3600  # 6 hours
 
 # How many recent BT protocols to load on startup / refresh
 PROTOCOLS_TO_LOAD = 3
@@ -46,14 +42,17 @@ _TOPIC_MAX_LEN = 120  # truncate very long titles
 
 
 class BundestagAPI:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, kv_store: Optional[KVStore] = None):
         self.api_key = api_key
+        self.kv_store = kv_store
         self.client = httpx.AsyncClient(
             timeout=30.0,
             headers={"User-Agent": "Zwillingstag/1.0 (research project)"},
         )
         # In-memory speech index: speech_id → Speech
         self._speech_index: Dict[str, Speech] = {}
+        # In-memory protocol cache (fallback when no KV store is available)
+        self._protocol_cache: Dict[str, List[Speech]] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -156,19 +155,20 @@ class BundestagAPI:
     async def _get_or_parse_protocol(
         self, xml_url: str, session_id: str, session_title: str, date_str: str
     ) -> List[Speech]:
-        """Return speeches for a protocol, using disk cache when available."""
-        cache_key = hashlib.md5(xml_url.encode()).hexdigest()[:12]
-        cache_file = CACHE_DIR / f"{cache_key}.json"
+        """Return speeches for a protocol, using KV store when available."""
+        cache_key = f"protocol:{hashlib.md5(xml_url.encode()).hexdigest()[:12]}"
 
-        if cache_file.exists():
-            age = time.time() - cache_file.stat().st_mtime
-            if age < CACHE_TTL_SECONDS:
+        # 1. Try KV store (persistent across Workers restarts)
+        if self.kv_store is not None:
+            cached = await self.kv_store.get_json(cache_key)
+            if cached is not None:
                 try:
-                    with open(cache_file, encoding="utf-8") as f:
-                        raw = json.load(f)
-                    return [Speech(**s) for s in raw]
+                    return [Speech(**s) for s in cached]
                 except Exception as e:
-                    logger.warning(f"Cache read error for {cache_key}: {e}")
+                    logger.warning(f"KV cache parse error for {cache_key}: {e}")
+        # 2. Try in-memory cache (local dev without KV)
+        elif cache_key in self._protocol_cache:
+            return self._protocol_cache[cache_key]
 
         logger.info(f"Fetching protocol XML: {xml_url}")
         try:
@@ -177,9 +177,11 @@ class BundestagAPI:
             speeches = self._parse_protocol_xml(
                 resp.content, session_id, session_title, date_str
             )
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump([s.model_dump() for s in speeches], f, ensure_ascii=False, indent=2)
+            serialised = [s.model_dump() for s in speeches]
+            if self.kv_store is not None:
+                await self.kv_store.put_json(cache_key, serialised)
+            else:
+                self._protocol_cache[cache_key] = speeches
             return speeches
         except Exception as e:
             logger.error(f"Failed to fetch/parse protocol {xml_url}: {e}")

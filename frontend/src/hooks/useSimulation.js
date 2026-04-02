@@ -2,6 +2,15 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
+  // When VITE_API_URL is set (e.g. Cloudflare Pages → Workers deployment),
+  // derive the WebSocket URL from it.
+  if (import.meta.env.VITE_API_URL) {
+    const apiUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '')
+    return apiUrl.replace(/^https?:\/\//, (match) =>
+      match === 'https://' ? 'wss://' : 'ws://'
+    ) + '/ws'
+  }
+  // Default: connect directly to the backend (port 8000) as in local dev.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.hostname}:8000/ws`
 }

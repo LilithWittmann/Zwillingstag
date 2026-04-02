@@ -11,11 +11,12 @@ A real-time simulation of how individual CDU/CSU members of the German Bundestag
 - 🏛️ **Semi-circular parliament seating layout** – 40 CDU/CSU members arranged as in the real Bundestag
 - 👏 **Live reaction animations** – clapping, speech bubbles for remarks and questions
 - 🤖 **LLM-powered reactions** – single OpenAI call per speech generates all 40 member reactions
-- 💾 **Reaction caching** – speeches are only processed once; revisiting a speech is instant
+- 💾 **Persistent reaction cache** – speeches are processed once and stored in Workers KV; revisiting a speech is instant
 - 📡 **WebSocket real-time updates** – reactions push to all connected browsers
 - 🕐 **Timeline navigation** – browse past speeches and see how the faction reacted
 - 📰 **Bundestag DIP API integration** – uses official open-data API for live speeches (mock fallback included)
 - 🔌 **Works without API keys** – mock data lets you explore the UI immediately
+- ☁️ **Cloudflare-ready** – deploy to Cloudflare Workers (backend) + Pages (frontend) with Workers KV persistence
 
 ---
 
@@ -25,14 +26,18 @@ A real-time simulation of how individual CDU/CSU members of the German Bundestag
 backend/   (Python 3.12 / FastAPI)
   main.py                    ← FastAPI app, WebSocket endpoint, REST routes
   models.py                  ← Pydantic data models
+  wrangler.toml              ← Cloudflare Workers deployment config
   services/
     bundestag_api.py         ← Bundestag DIP API client (with mock fallback)
     llm_service.py           ← OpenAI reaction generation (with mock fallback)
     debate_simulator.py      ← Orchestration: seat layout, caching, live updates
+    kv_store.py              ← KV abstraction (disk for local dev / Workers KV)
+    mdb_service.py           ← Bundestag MdB XML API client
   data/
-    cdu_members.json         ← 40 CDU/CSU member profiles
+    cdu_members.json         ← 40 CDU/CSU member profiles (static fallback)
 
 frontend/  (React 18 / Vite)
+  wrangler.toml              ← Cloudflare Pages deployment config
   src/
     App.jsx                  ← Root component
     hooks/useSimulation.js   ← WebSocket client hook
@@ -78,7 +83,7 @@ npm run dev                   # starts on http://localhost:5173
 | `BUNDESTAG_API_KEY` | [DIP API key](https://dip.bundestag.de/api/v1/) | *(mock fallback)* |
 | `OPENAI_API_KEY` | OpenAI key for reaction generation | *(mock fallback)* |
 | `OPENAI_MODEL` | Model to use | `gpt-4o-mini` |
-| `POLL_INTERVAL_SECONDS` | Live-update polling interval | `120` |
+| `KV_CACHE_DIR` | Local disk KV cache path (non-Workers deployments) | `data/kv_cache` |
 
 ---
 
@@ -94,3 +99,95 @@ npm run dev                   # starts on http://localhost:5173
 | `/ws` | WS | Real-time state updates; accepts `select_speech` / `refresh` messages |
 
 Swagger UI: http://localhost:8000/docs
+
+---
+
+## Cloudflare Deployment
+
+Zwillingstag uses **Cloudflare Workers** for the backend and **Cloudflare Pages** for the frontend. All speech and reaction data is persisted in **Workers KV** (no TTL – each speech is stored once and served from cache on every subsequent request).
+
+### Prerequisites
+
+```bash
+npm install -g wrangler
+wrangler login
+```
+
+### 1 – Backend (Cloudflare Workers)
+
+#### a) Create the KV namespace
+
+```bash
+cd backend
+wrangler kv namespace create SPEECH_CACHE
+```
+
+Copy the printed `id` value and paste it into `backend/wrangler.toml`:
+
+```toml
+[[kv_namespaces]]
+binding = "SPEECH_CACHE"
+id = "<paste-id-here>"
+```
+
+#### b) Set secrets
+
+```bash
+wrangler secret put OPENAI_API_KEY
+wrangler secret put BUNDESTAG_API_KEY   # optional
+```
+
+#### c) Deploy
+
+```bash
+wrangler deploy
+```
+
+The Worker URL will be printed, e.g. `https://zwillingstag-api.<your-account>.workers.dev`.
+
+> **Note on WebSockets**: Cloudflare Workers support WebSockets natively for single-client connections. For multi-client broadcasting you would need [Durable Objects](https://developers.cloudflare.com/durable-objects/). The REST endpoints (`/api/state`, `/api/reactions/:id`, etc.) work without WebSockets and the frontend will fall back to them gracefully.
+
+### 2 – Frontend (Cloudflare Pages)
+
+#### Option A – Deploy via Wrangler CLI
+
+```bash
+cd frontend
+npm run build
+wrangler pages deploy dist --project-name zwillingstag-frontend
+```
+
+#### Option B – Connect your Git repository (recommended)
+
+1. Open the [Cloudflare dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**.
+2. Select the `LilithWittmann/Zwillingstag` repository.
+3. Set the build configuration:
+   - **Framework preset**: Vite
+   - **Build command**: `cd frontend && npm run build`
+   - **Build output directory**: `frontend/dist`
+4. Add an **Environment variable** for the production environment:
+   ```
+   VITE_API_URL = https://zwillingstag-api.<your-account>.workers.dev
+   ```
+5. Click **Save and deploy**.
+
+Every push to the main branch will automatically rebuild and redeploy the frontend.
+
+### Architecture diagram (Cloudflare)
+
+```
+Browser
+  │  HTTPS / WSS
+  ▼
+Cloudflare Pages (frontend – static React build)
+  │  HTTPS fetch / WSS
+  ▼
+Cloudflare Workers (backend – FastAPI via Python Workers)
+  │  KV read/write
+  ▼
+Workers KV (SPEECH_CACHE namespace)
+  – protocols cached on first fetch (no TTL)
+  – reactions cached on first generation (no TTL)
+  – member data cached on first fetch (no TTL)
+```
+

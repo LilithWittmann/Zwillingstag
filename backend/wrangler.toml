@@ -1,0 +1,36 @@
+# Cloudflare Workers configuration for the Zwillingstag backend (FastAPI).
+#
+# Prerequisites
+# -------------
+# 1. Install Wrangler:   npm install -g wrangler
+# 2. Log in:             wrangler login
+# 3. Create a KV namespace (once):
+#       wrangler kv namespace create SPEECH_CACHE
+#    Then paste the returned ID into the [[kv_namespaces]] section below.
+#
+# 4. Set secrets (never commit real keys to source control):
+#       wrangler secret put OPENAI_API_KEY
+#       wrangler secret put BUNDESTAG_API_KEY
+#
+# 5. Deploy:  wrangler deploy
+
+name = "zwillingstag-api"
+main = "main.py"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["python_workers"]
+
+# ---------------------------------------------------------------------------
+# Workers KV – persistent speech / reaction cache (no TTL)
+# ---------------------------------------------------------------------------
+# Replace <KV_NAMESPACE_ID> with the real ID printed by:
+#   wrangler kv namespace create SPEECH_CACHE
+[[kv_namespaces]]
+binding = "SPEECH_CACHE"
+id = "<KV_NAMESPACE_ID>"
+
+# ---------------------------------------------------------------------------
+# Non-secret environment variables
+# ---------------------------------------------------------------------------
+[vars]
+OPENAI_MODEL = "gpt-4o-mini"
+# Secrets (OPENAI_API_KEY, BUNDESTAG_API_KEY) are set via wrangler secret put
