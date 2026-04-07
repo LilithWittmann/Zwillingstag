@@ -4,6 +4,7 @@ import ParliamentView from './components/ParliamentView'
 import DebatePanel from './components/DebatePanel'
 import TimelineControl from './components/TimelineControl'
 import ReactionLegend from './components/ReactionLegend'
+import { apiUrl } from './utils/api'
 
 export default function App() {
   const { state, connected, selectSpeech, refresh } = useSimulation()
@@ -11,7 +12,7 @@ export default function App() {
 
   // Load members once
   useEffect(() => {
-    fetch('/api/members')
+    fetch(apiUrl('/api/members'))
       .then((r) => r.json())
       .then(setMembers)
       .catch(console.error)
