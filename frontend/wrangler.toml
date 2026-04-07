@@ -1,0 +1,29 @@
+# Cloudflare Pages configuration for the Zwillingstag frontend (React / Vite).
+#
+# Prerequisites
+# -------------
+# 1. Install Wrangler:   npm install -g wrangler
+# 2. Log in:             wrangler login
+#
+# Deploy
+# ------
+# Build first, then deploy:
+#   npm run build
+#   wrangler pages deploy dist --project-name zwillingstag-frontend
+#
+# Or set up a Git-connected Cloudflare Pages project in the dashboard
+# (Settings → Build & deployments) with:
+#   Build command:      npm run build
+#   Build output dir:   dist
+#   Environment variable (Production):
+#     VITE_API_URL = https://zwillingstag-api.<your-account>.workers.dev
+
+name = "zwillingstag-frontend"
+pages_build_output_dir = "dist"
+
+# ---------------------------------------------------------------------------
+# Build settings (used by Cloudflare Pages CI)
+# ---------------------------------------------------------------------------
+[env.production.vars]
+# Override in the Cloudflare Pages dashboard:
+# VITE_API_URL = "https://zwillingstag-api.<your-account>.workers.dev"

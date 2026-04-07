@@ -5,13 +5,16 @@ import DebatePanel from './components/DebatePanel'
 import TimelineControl from './components/TimelineControl'
 import ReactionLegend from './components/ReactionLegend'
 
+// Base URL for REST API calls. Defaults to '' (same-origin proxy in dev).
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+
 export default function App() {
   const { state, connected, selectSpeech, refresh } = useSimulation()
   const [members, setMembers] = useState([])
 
   // Load members once
   useEffect(() => {
-    fetch('/api/members')
+    fetch(`${API_BASE}/api/members`)
       .then((r) => r.json())
       .then(setMembers)
       .catch(console.error)

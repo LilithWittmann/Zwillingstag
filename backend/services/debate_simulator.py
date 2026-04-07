@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 from models import Member, Reaction, SimulationState, Speech
 from services.bundestag_api import BundestagAPI
+from services.kv_store import KVStore
 from services.llm_service import LLMService
 from services.mdb_service import MdbService
 
@@ -23,14 +24,22 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 class DebateSimulator:
-    def __init__(self, bundestag_api: BundestagAPI, llm_service: LLMService, mdb_service: MdbService):
+    def __init__(
+        self,
+        bundestag_api: BundestagAPI,
+        llm_service: LLMService,
+        mdb_service: MdbService,
+        kv_store: Optional[KVStore] = None,
+    ):
         self.bundestag_api = bundestag_api
         self.llm_service = llm_service
         self.mdb_service = mdb_service
+        self.kv_store = kv_store
         self.members: List[Member] = []
         self.available_speeches: List[Speech] = []
         self.current_speech: Optional[Speech] = None
         self.reactions: List[Reaction] = []
+        # In-memory reaction cache (used when no KV store is configured)
         self._reaction_cache: Dict[str, List[Reaction]] = {}
 
     # ------------------------------------------------------------------
@@ -93,12 +102,30 @@ class DebateSimulator:
         self.reactions = await self._get_or_generate_reactions(speech)
 
     async def _get_or_generate_reactions(self, speech: Speech) -> List[Reaction]:
-        if speech.id in self._reaction_cache:
-            logger.info(f"Cache hit for speech {speech.id}")
+        kv_key = f"reactions:{speech.id}"
+
+        # 1. Try KV store (persistent across Workers restarts)
+        if self.kv_store is not None:
+            cached = await self.kv_store.get_json(kv_key)
+            if cached is not None:
+                try:
+                    logger.info(f"KV cache hit for reactions:{speech.id}")
+                    return [Reaction(**r) for r in cached]
+                except Exception as e:
+                    logger.warning(f"KV reaction cache parse error: {e}")
+        # 2. Try in-memory cache
+        elif speech.id in self._reaction_cache:
+            logger.info(f"Memory cache hit for speech {speech.id}")
             return self._reaction_cache[speech.id]
+
         logger.info(f"Generating reactions for speech {speech.id}")
         reactions = await self.llm_service.generate_reactions(speech, self.members)
-        self._reaction_cache[speech.id] = reactions
+
+        if self.kv_store is not None:
+            await self.kv_store.put_json(kv_key, [r.model_dump() for r in reactions])
+        else:
+            self._reaction_cache[speech.id] = reactions
+
         return reactions
 
     async def get_reactions(self, speech_id: str) -> List[dict]:

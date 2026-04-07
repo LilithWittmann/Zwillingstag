@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
@@ -17,31 +18,51 @@ logger = logging.getLogger(__name__)
 from models import Speech
 from services.bundestag_api import BundestagAPI
 from services.debate_simulator import DebateSimulator
+from services.kv_store import CloudflareKVStore, DiskKVStore, KVStore
 from services.llm_service import LLMService
 from services.mdb_service import MdbService
 
 
 # ------------------------------------------------------------------
-# Background live-update loop
+# KV store initialisation
 # ------------------------------------------------------------------
 
-async def auto_update_loop():
-    interval = int(os.getenv("POLL_INTERVAL_SECONDS", "120"))
-    while True:
-        await asyncio.sleep(interval)
-        try:
-            updated = await simulator.check_for_updates()
-            if updated:
-                await broadcast(await simulator.get_state())
-        except Exception as e:
-            logger.error(f"Auto-update loop error: {e}")
+def _init_kv_store() -> KVStore:
+    """
+    Return the appropriate KV store:
+    - When running inside a Cloudflare Worker the ``js`` module is available
+      and the SPEECH_CACHE binding is exposed on ``js.env``.
+    - Otherwise fall back to a local disk-based store (useful for local dev
+      and standard uvicorn deployments).
+    """
+    try:
+        # ``js`` is only importable in the Pyodide / Cloudflare Workers runtime.
+        # ImportError is expected in all other environments and is handled below.
+        import js  # noqa: PLC0415
+        namespace = getattr(js.env, "SPEECH_CACHE", None)
+        if namespace is not None:
+            logger.info("Using Cloudflare Workers KV store (SPEECH_CACHE binding)")
+            return CloudflareKVStore(namespace)
+    except ImportError:
+        pass
+
+    cache_dir = Path(os.getenv("KV_CACHE_DIR", "data/kv_cache"))
+    logger.info(f"Using disk-based KV store at {cache_dir}")
+    return DiskKVStore(cache_dir)
+
+
+kv_store = _init_kv_store()
+
+
+# ------------------------------------------------------------------
+# Lifespan
+# ------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load CDU/CSU members from Bundestag XML API (cached to disk)
+    # Load CDU/CSU members from Bundestag XML API (cached via KV store)
     await simulator.load_members()
-    asyncio.create_task(auto_update_loop())
     yield
 
 
@@ -61,14 +82,17 @@ app.add_middleware(
 )
 
 # Services
-bundestag_api = BundestagAPI(api_key=os.getenv("BUNDESTAG_API_KEY"))
+bundestag_api = BundestagAPI(
+    api_key=os.getenv("BUNDESTAG_API_KEY"),
+    kv_store=kv_store,
+)
 llm_service = LLMService(
     api_key=os.getenv("OPENAI_API_KEY"),
     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     base_url=os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
 )
-mdb_service = MdbService()
-simulator = DebateSimulator(bundestag_api, llm_service, mdb_service)
+mdb_service = MdbService(kv_store=kv_store)
+simulator = DebateSimulator(bundestag_api, llm_service, mdb_service, kv_store=kv_store)
 
 # Active WebSocket connections
 connections: List[WebSocket] = []
